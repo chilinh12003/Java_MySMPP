@@ -75,6 +75,7 @@ public class LoadMt extends ThreadBase
 							{
 								// Lưu MTQueue vào để chờ response từ telco trả
 								// về
+								mtQueue.setMtResponseId(ssm.getSequenceNumber());
 								this.waitSendResponse.enqueue(ssm.getSequenceNumber() + "", mtQueue);
 
 								mlog.log.info("SEND MT: " + MyLogger.GetLog(mtQueue));

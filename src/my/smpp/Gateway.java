@@ -1,10 +1,9 @@
 package my.smpp;
-
 import java.io.File;
+import java.util.Iterator;
 
 import com.logica.smpp.*;
 import com.logica.smpp.pdu.*;
-
 import my.db.*;
 import my.smpp.process.SendEnquireLink;
 import my.smpp.process.LoadMt;
@@ -14,6 +13,7 @@ import my.smpp.process.SaveCdr;
 import my.smpp.process.SaveMo;
 import my.smpp.process.SaveMtLog;
 import my.smpp.process.SmscSender;
+import my.smpp.process.ThreadBase;
 import my.smpp.process.TimeoutResponse;
 import uti.MyLogger;
 
@@ -32,7 +32,7 @@ public class Gateway extends Thread
 		HibernateSessionFactory.init();
 	}
 
-	MyLogger mLog = new MyLogger(Gateway.class.getName());
+	static MyLogger mlog = new MyLogger(Gateway.class.getName());
 
 	public static Session session = null;
 	private PduEventListener pduListener = null;
@@ -84,6 +84,24 @@ public class Gateway extends Thread
 		cdrQueueSave = new Queue();
 		cdrQueueWaiting = new QueueMap();
 	}
+
+	static void unBind()
+	{
+		try
+		{
+			if (Var.smpp.sessionBound)
+			{
+				UnbindResp response = session.unbind();
+				mlog.log.info("Unbind response " + response.debugString());
+				Var.smpp.sessionBound = false;
+			}
+		}
+		catch (Exception ex)
+		{
+			ex.printStackTrace();
+		}
+	}
+
 	synchronized public void bindAsync()
 	{
 		BindRequest request = null;
@@ -94,7 +112,7 @@ public class Gateway extends Thread
 		{
 			try
 			{
-				mLog.log.info("Connecting to SMSC " + Config.smpp.ipAddress + ":" + Config.smpp.port);
+				mlog.log.info("Connecting to SMSC " + Config.smpp.ipAddress + ":" + Config.smpp.port);
 
 				connection = new TCPIPConnection(Config.smpp.ipAddress, Config.smpp.port);
 				connection.setReceiveTimeout(Config.mo.receiveTimeout);
@@ -117,18 +135,18 @@ public class Gateway extends Thread
 					pduListener = new PduEventListener(receiveQueue, responseQueue, sendQueue);
 				}
 				// send the request
-				mLog.log.info("Bind request " + request.debugString());
+				mlog.log.info("Bind request " + request.debugString());
 				response = session.bind(request, pduListener);
-				mLog.log.info("Bind response " + response.debugString());
+				mlog.log.info("Bind response " + response.debugString());
 				if (response.getCommandStatus() == Data.ESME_ROK)
 				{ // no error
 					Var.smpp.sessionBound = true;
-					mLog.log.info("Succesfully Bound to SMSC in " + new java.sql.Timestamp(System.currentTimeMillis())
+					mlog.log.info("Succesfully Bound to SMSC in " + new java.sql.Timestamp(System.currentTimeMillis())
 							+ "!!!");
 				}
 				else
 				{
-					mLog.log.warn("Gateway bindASync Command Status:"
+					mlog.log.warn("Gateway bindASync Command Status:"
 							+ Common.getCommandDescription(response.getCommandStatus()));
 					try
 					{
@@ -141,7 +159,7 @@ public class Gateway extends Thread
 			}
 			catch (Exception ex)
 			{
-				mLog.log.error("Bind operation FAILT. Try later in " + (Config.smpp.rebindTimeout / 1000) + " seconds",
+				mlog.log.error("Bind operation FAILT. Try later in " + (Config.smpp.rebindTimeout / 1000) + " seconds",
 						ex);
 
 				try
@@ -157,13 +175,6 @@ public class Gateway extends Thread
 	}
 
 	static Gateway gateway = new Gateway();
-	public static void main(String args[])
-	{
-		gateway = new Gateway();
-
-		gateway.bindAsync();
-		gateway.start();
-	}
 
 	public void run()
 	{
@@ -171,56 +182,141 @@ public class Gateway extends Thread
 		{
 			// Mặc định là bind theo chế độ TR - bất đồng bộ nhận và gửi
 
-			//Gửi SubmitSM sang SMSC
+			// Gửi SubmitSM sang SMSC
 			SmscSender sender = new SmscSender(sendQueue);
 			sender.setPriority(MAX_PRIORITY);
 			sender.start();
 
-			//Load MT từ db và build submitSm và add vào sendQueue chờ gửi sang SMSC
+			// Load MT từ db và build submitSm và add vào sendQueue chờ gửi sang
+			// SMSC
 			LoadMt loadMT = new LoadMt(sendQueue, waitSendResponse, mtLogQueue, 1, 0);
 			loadMT.setPriority(MAX_PRIORITY);
 			loadMT.start();
 
-			//Nhận các Response từ SMSC khi gửi mt xong
+			// Nhận các Response từ SMSC khi gửi mt xong
 			ResponseMt response = new ResponseMt(responseQueue, waitSendResponse, resendQueue, mtLogQueue);
 			response.setPriority(MAX_PRIORITY);
 			response.start();
 
-			//Gửi lại các MT đang bị lỗi khi gửi sang Telco
+			// Gửi lại các MT đang bị lỗi khi gửi sang Telco
 			ResendMt resend = new ResendMt(resendQueue, sendQueue, waitSendResponse, mtLogQueue);
 			resend.setPriority(MAX_PRIORITY);
 			resend.start();
-			
-			//Insert mtlog và Insert cdrQueue
-			SaveMtLog saveMtlog = new SaveMtLog(mtLogQueue, cdrQueueWaiting,cdrQueueSave);
+
+			// Insert mtlog và Insert cdrQueue
+			SaveMtLog saveMtlog = new SaveMtLog(mtLogQueue, cdrQueueWaiting, cdrQueueSave);
 			saveMtlog.setPriority(MAX_PRIORITY);
 			saveMtlog.start();
 
-			//Insert MoQueue và add CdrQueue đề chờ MT
+			// Insert MoQueue và add CdrQueue đề chờ MT
 			SaveMo saveMo = new SaveMo(receiveQueue, cdrQueueWaiting);
 			saveMo.setPriority(MAX_PRIORITY);
 			saveMo.start();
 
-			//Insert Cdr xuống CdrQueue
+			// Insert Cdr xuống CdrQueue
 			SaveCdr saveCdr = new SaveCdr(cdrQueueSave);
 			saveCdr.setPriority(MAX_PRIORITY);
 			saveCdr.start();
-		
-			
-			//Kiểm tra và xóa bỏ các Queue còn sót lại
-			TimeoutResponse timeoutCheck = new TimeoutResponse(waitSendResponse, mtLogQueue, cdrQueueWaiting, cdrQueueSave);
+
+			// Kiểm tra và xóa bỏ các Queue còn sót lại
+			TimeoutResponse timeoutCheck = new TimeoutResponse(waitSendResponse, mtLogQueue, cdrQueueWaiting,
+					cdrQueueSave);
 			timeoutCheck.setPriority(NORM_PRIORITY);
 			timeoutCheck.start();
-			
-			
-			//gửi bản tin EnquireLink để kiểm tra kết nối đến smsc
+
+			// gửi bản tin EnquireLink để kiểm tra kết nối đến smsc
 			SendEnquireLink checkELink = new SendEnquireLink(gateway);
 			checkELink.setPriority(MAX_PRIORITY);
 			checkELink.start();
+
 		}
 		catch (Exception ex)
 		{
-			mLog.log.error(ex);
+			mlog.log.error(ex);
 		}
 	}
+
+	static void saveQueueToFile()
+	{
+		waitSendResponse.saveToFile("waitSendResponse.dat");
+		//responseQueue.saveToFile("responseQueue.dat");
+		receiveQueue.saveToFile("receiveQueue.dat");
+		sendQueue.saveToFile("sendQueue.dat");
+		resendQueue.saveToFile("resendQueue.dat");
+		mtLogQueue.saveToFile("mtLogQueue.dat");
+		cdrQueueSave.saveToFile("cdrQueueSave.dat");
+		cdrQueueWaiting.saveToFile("cdrQueueWaiting.dat");
+	}
+
+	static void loadQueueFromFile()
+	{
+		waitSendResponse.loadFromFile("waitSendResponse.dat", "getMtResponseId");
+		//responseQueue.loadFromFile("responseQueue.dat");
+		receiveQueue.loadFromFile("receiveQueue.dat");
+		sendQueue.loadFromFile("sendQueue.dat");
+		resendQueue.loadFromFile("resendQueue.dat");
+		mtLogQueue.loadFromFile("mtLogQueue.dat");
+		cdrQueueSave.loadFromFile("cdrQueueSave.dat");
+		cdrQueueWaiting.loadFromFile("cdrQueueWaiting.dat", "getRequestId");
+	}
+
+	static void exit()
+	{
+		try
+		{
+			mlog.log.info("Stoping...");
+			
+			mlog.log.info("unbinding smsc...");
+			unBind();
+			mlog.log.info("unbind success smsc...");
+			
+			Var.smpp.running = false;
+			Var.smpp.sessionBound = false;
+			
+			responseQueue.wakeup();
+			receiveQueue.wakeup();
+			sendQueue.wakeup();
+			resendQueue.wakeup();
+			mtLogQueue.wakeup();
+			cdrQueueSave.wakeup();
+			
+			int count = 1;
+			while (count < 10 && ThreadBase.countLiveThread() > 0)
+			{
+				mlog.log.info("Waiting for Stoping Thread...count live thread:" + ThreadBase.countLiveThread());
+				//ThreadBase.stateLiveThread();
+				sleep(100);
+				count++;
+			}
+
+			saveQueueToFile();
+
+			mlog.log.info("------STOPED------");
+
+		}
+		catch (Exception ex)
+		{
+			ex.printStackTrace();
+		}
+	}
+
+	public static void main(String args[])
+	{
+		mlog.log.info("------START-------");
+		gateway = new Gateway();
+
+		loadQueueFromFile();
+
+		Runtime.getRuntime().addShutdownHook(new Thread()
+		{
+			public void run()
+			{
+				exit();
+			}
+		});
+
+		gateway.bindAsync();
+		gateway.start();
+	}
+
 }

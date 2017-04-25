@@ -11,11 +11,17 @@ import uti.MyConfig;
  * @author Administrator
  *
  */
-public class PduMo
+public class PduMo implements java.io.Serializable
 {
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
+	
 	PDU pdu;
 	String requestId = "";
 	Calendar calReceiveDate =null;
+	public PduMo(){}
 	public PduMo(PDU pdu)
 	{
 		this.pdu = pdu;

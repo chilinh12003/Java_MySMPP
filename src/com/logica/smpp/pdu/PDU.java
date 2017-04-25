@@ -75,7 +75,7 @@ import com.logica.smpp.util.*;
                            parameters which aren't defined in the specs
 */
 
-public abstract class PDU extends ByteData
+public abstract class PDU extends ByteData 
 {
     /**
      * This constant indicates that parsing of the buffer failed

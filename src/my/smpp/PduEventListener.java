@@ -1,9 +1,15 @@
 package my.smpp;
 
+import java.util.Calendar;
+
 import com.logica.smpp.*;
 import com.logica.smpp.pdu.*;
 
+import my.db.MoQueue;
 import uti.MyCheck;
+import uti.MyConfig;
+import uti.MyConvert;
+import uti.MyDate;
 import uti.MyLogger;
 /**
  * An implementation of a PDU listener which handles PDUs received from SMSC, in
@@ -93,13 +99,21 @@ public class PduEventListener extends SmppObject implements ServerPDUEventListen
 					}
 					else
 					{
-						PduMo pduMo = new PduMo(pdu);
+						MoQueue moQueue = new MoQueue();
+						Calendar calReceiveDate = Calendar.getInstance();
+						String requestId = MyConfig.Get_DateFormat_yyyymmddhhmmssSSS().format(calReceiveDate.getTime());
+						moQueue.setPhoneNumber(removePlusSign(deliverSM.getSourceAddr().getAddress()));
+						moQueue.setPid((short)MyConvert.GetPIDByMSISDN(moQueue.getPhoneNumber(), 100));
+						moQueue.setShortCode(removePlusSign(deliverSM.getDestAddr().getAddress()));
 						
-						this.receiveQueue.enqueue(pduMo);
-						String userid = deliverSM.getSourceAddr().getAddress();
-
-						deliverSM.setSourceAddr(MyCheck.ValidPhoneNumber(userid, "84"));
+						moQueue.setMo(deliverSM.getShortMessage());
+						moQueue.setReceiveDate(MyDate.Date2Timestamp(calReceiveDate));
+						moQueue.setChannelId(MyConfig.ChannelType.SMS.GetValue());
+						moQueue.setRequestId(requestId);
+						moQueue.setTelcoId(Config.smpp.telco.GetValue());
+						moQueue.setMoInsertDate(MyDate.Date2Timestamp(Calendar.getInstance()));
 						
+						receiveQueue.enqueue(moQueue);
 						mLog.log.info("RECEIVE MO"+deliverSM.debugString());
 					}
 					break;
@@ -121,5 +135,15 @@ public class PduEventListener extends SmppObject implements ServerPDUEventListen
 			mLog.log.error(ex);
 		}
 	}
-
+	// Dest_addr received from SMSC can be: +849xxx or 849xxx
+		// if +849xxx then remove the plus (+) sign
+		private String removePlusSign(String PhoneNumber)
+		{
+			String temp = PhoneNumber;
+			if (temp.startsWith("+"))
+			{
+				temp = temp.substring(1);
+			}
+			return temp;
+		}
 }

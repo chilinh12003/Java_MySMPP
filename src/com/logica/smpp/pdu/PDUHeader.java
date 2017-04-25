@@ -18,9 +18,10 @@ import com.logica.smpp.util.NotEnoughDataInByteBufferException;
  * @version 1.0, 11 Jun 2001
  */
 
-public class PDUHeader extends ByteData
+public class PDUHeader extends ByteData  
 {
-    private int commandLength = 0;
+   
+	private int commandLength = 0;
     private int commandId = 0;
     private int commandStatus = 0;
     private int sequenceNumber = 1;

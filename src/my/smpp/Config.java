@@ -105,7 +105,7 @@ public class Config
 		/**
 		 * Sau thời gian này, những cdr không nhận được respone từ mt thì sẽ được lưu xuống cdrQueue và hoàn tiền cho khách
 		 */
-		public static int waitingMtTimeout = 300000;
+		public static int waitingMtTimeout = 90*60*1000;
 	}
 	public static class log
 	{

@@ -1,5 +1,9 @@
 package my.smpp.process;
 
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map.Entry;
+
 import my.smpp.QueueMap;
 import uti.MyLogger;
 
@@ -14,25 +18,44 @@ public abstract class ThreadBase extends Thread
 {
 	MyLogger mlog = new MyLogger(this.getClass().getName());
 
+	
 	/**
 	 * Lưu trữ tất cả các thread đang chạy
 	 */
-	protected static QueueMap liveThread = new QueueMap();
+	protected static volatile HashMap<String, Object> liveThread = new HashMap<String, Object>();
 
 	public String getKey()
 	{
 		return this.getClass().getName() + this.getId();
 	}
-
+	
+	/**
+	 * Số lượng thread đang chạy
+	 * @return
+	 */
+	public static int countLiveThread()
+	{
+		return liveThread.size();
+	}
 	public void addIntoLiveThread()
 	{
-		liveThread.enqueue(this.getKey(), this);
+		liveThread.put(this.getKey(), this);
 	}
 	public void removeFromLiveThread()
 	{
-		liveThread.dequeue(this.getKey());
+		liveThread.remove(this.getKey());
 	}
 
+	public static void stateLiveThread()
+	{
+		for(Iterator<Entry<String, Object>> t = liveThread.entrySet().iterator(); t.hasNext();)
+		{
+			Entry<String, Object> item = t.next();
+			ThreadBase thread = (ThreadBase) item.getValue();
+			System.out.println("Thread: "+item.getKey() +"|State:" +thread.getState().toString());
+			
+		}
+	}
 	public ThreadBase()
 	{
 		// TODO Auto-generated constructor stub
@@ -49,7 +72,6 @@ public abstract class ThreadBase extends Thread
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-
 	}
 
 	public final void run()
