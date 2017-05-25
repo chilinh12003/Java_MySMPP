@@ -1,12 +1,13 @@
-package my.smpp;
+package my.smpp.process;
 
 import java.util.Calendar;
 
 import com.logica.smpp.*;
 import com.logica.smpp.pdu.*;
 
-import my.db.MoQueue;
-import uti.MyCheck;
+import my.db.obj.MoQueue;
+import my.smpp.Config;
+import my.smpp.Queue;
 import uti.MyConfig;
 import uti.MyConvert;
 import uti.MyDate;
@@ -26,7 +27,7 @@ public class PduEventListener extends SmppObject implements ServerPDUEventListen
 	private Queue responseQueue = null;
 	private Queue sendQueue = null;
 
-	private DeliverSM deliverSM = null;
+	
 
 	public PduEventListener(Queue receiveQueue, Queue responseQueue,  Queue sendQueue)
 	{
@@ -38,9 +39,9 @@ public class PduEventListener extends SmppObject implements ServerPDUEventListen
 	/**
 	 * Means to process PDUs received from the SMSC. This method is called by
 	 * the <code>Receiver</code> whenever a PDU is received from the SMSC.
-	 * 
-	 * @param request
-	 *            the request received from the SMSC.
+	 * <br>
+	 * <b>Hàm này được chạy để nhận các Request, response do bên SMSC gửi sang</b>
+	 * @param request: the request received from the SMSC.
 	 */
 	public void handleEvent(ServerPDUEvent event)
 	{
@@ -50,7 +51,6 @@ public class PduEventListener extends SmppObject implements ServerPDUEventListen
 			//Nếu là 1 MO do SMSC gửi sang
 			if (pdu.isRequest())
 			{
-				
 				//Khi nhận được 1 MO thì phải trả về cho SMSC 1 response
 				// Make default response
 				Response response = ((Request) pdu).getResponse();
@@ -64,7 +64,7 @@ public class PduEventListener extends SmppObject implements ServerPDUEventListen
 			else if (pdu.isResponse())
 			{
 				if (pdu.getCommandId() != Data.ENQUIRE_LINK_RESP)
-					this.responseQueue.enqueue(pdu);
+;					this.responseQueue.enqueue(pdu);
 			}
 			else
 			{
@@ -78,6 +78,30 @@ public class PduEventListener extends SmppObject implements ServerPDUEventListen
 		}
 	}
 
+	MoQueue createMo(DeliverSM deliverSm) throws Exception
+	{
+		try
+		{
+			MoQueue moQueue = new MoQueue();
+			Calendar calReceiveDate = Calendar.getInstance();
+			String requestId = MyConfig.Get_DateFormat_yyyymmddhhmmssSSS().format(calReceiveDate.getTime());
+			moQueue.setPhoneNumber(removePlusSign(deliverSm.getSourceAddr().getAddress()));
+			moQueue.setPid(MyConvert.GetPIDByMSISDN(moQueue.getPhoneNumber(), 100));
+			moQueue.setShortCode(removePlusSign(deliverSm.getDestAddr().getAddress()));
+			
+			moQueue.setMo(deliverSm.getShortMessage());
+			moQueue.setReceiveDate(MyDate.Date2Timestamp(calReceiveDate));
+			moQueue.setChannelId(MyConfig.ChannelType.SMS.GetValue());
+			moQueue.setRequestId(requestId);
+			moQueue.setTelcoId(Config.smpp.telco.GetValue());
+			moQueue.setMoInsertDate(MyDate.Date2Timestamp(Calendar.getInstance()));
+			 return moQueue;
+		}
+		catch(Exception ex)
+		{
+			throw ex;
+		}
+	}
 	private void processRequest(PDU pdu)
 	{
 		try
@@ -85,45 +109,31 @@ public class PduEventListener extends SmppObject implements ServerPDUEventListen
 			switch (pdu.getCommandId())
 			{
 				case Data.DELIVER_SM :
-					deliverSM = (DeliverSM) pdu;
+					 DeliverSM deliverSm = (DeliverSM) pdu;
 					
 					// Added on 22//2003 : VinaPhone gui ban tin DeliverReport voi
 					// truong esm_class != 0x4. ==> He thong xem nhu ban tin thuong
 					// sai format va gui thong bao -- report -- thong bao --> LOOP./
 					// To pass over this, set:
-					
-					if (deliverSM.getEsmClass() == 0x04)
+					if (deliverSm.getEsmClass() == 0x04)
 					{
 						// this.deliveryQueue.enqueue(pdu);
-						mLog.log.info("dsm.getEsmClass() == 0x04");
+						mLog.log.debug("dsm.getEsmClass() == 0x04");
 					}
 					else
 					{
-						MoQueue moQueue = new MoQueue();
-						Calendar calReceiveDate = Calendar.getInstance();
-						String requestId = MyConfig.Get_DateFormat_yyyymmddhhmmssSSS().format(calReceiveDate.getTime());
-						moQueue.setPhoneNumber(removePlusSign(deliverSM.getSourceAddr().getAddress()));
-						moQueue.setPid((short)MyConvert.GetPIDByMSISDN(moQueue.getPhoneNumber(), 100));
-						moQueue.setShortCode(removePlusSign(deliverSM.getDestAddr().getAddress()));
-						
-						moQueue.setMo(deliverSM.getShortMessage());
-						moQueue.setReceiveDate(MyDate.Date2Timestamp(calReceiveDate));
-						moQueue.setChannelId(MyConfig.ChannelType.SMS.GetValue());
-						moQueue.setRequestId(requestId);
-						moQueue.setTelcoId(Config.smpp.telco.GetValue());
-						moQueue.setMoInsertDate(MyDate.Date2Timestamp(Calendar.getInstance()));
-						
+						MoQueue moQueue = createMo(deliverSm);
 						receiveQueue.enqueue(moQueue);
-						mLog.log.info("RECEIVE MO"+deliverSM.debugString());
+						mLog.log.debug("RECEIVE MO"+deliverSm.debugString());
 					}
 					break;
 				case Data.DATA_SM :
-					mLog.log.warn("  Data_SM --> Not processed.");
+					mLog.log.warn("  Data_SM --> Not processed. pdu:"+ pdu.debugString());
 					break;
 				case Data.UNBIND :
-					mLog.log.info(" Data.UNBIND --> Not processed.");
-					PduMo pduMo = new PduMo(pdu);
-					this.receiveQueue.enqueue(pduMo);
+					mLog.log.info(" Data.UNBIND --> Not processed. pdu:"+ pdu.debugString());
+					//PduMo pduMo = new PduMo(pdu);
+					//this.receiveQueue.enqueue(pduMo);
 					break;
 				default :
 					mLog.log.warn("processRequest: Unspecified SM " + pdu.debugString());

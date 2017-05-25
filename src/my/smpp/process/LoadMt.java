@@ -1,11 +1,11 @@
 package my.smpp.process;
 
 import java.util.Calendar;
-import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.Vector;
 
-import my.db.MtQueue;
+import my.db.dao.DaoMtQueue;
+import my.db.obj.MtQueue;
 import my.smpp.*;
 import uti.MyDate;
 import uti.MyLogger;
@@ -28,14 +28,17 @@ public class LoadMt extends ThreadBase
 	 * Danh sách chứa các MT đang chờ request từ SMSC trả về
 	 */
 	private QueueMap waitSendResponse = null;
-	
+
 	private Queue mtLogQueue = null;
 	int threadNumber = 1;
 	int threadIndex = 0;
 	int getRowCount = 10;
 
-	MtQueue mtQueueDb = null;
-	public LoadMt(Queue sendQueue, QueueMap waitSendResponse,Queue mtLogQueue, int threadNumber, int threadIndex)
+	DaoMtQueue daoMtQueue = null;
+	List<MtQueue> listMt = null;
+	
+	LinkedList<SubmitSM> listSubmit = null;
+	public LoadMt(Queue sendQueue, QueueMap waitSendResponse, Queue mtLogQueue, int threadNumber, int threadIndex)
 	{
 		this.sendQueue = sendQueue;
 		this.waitSendResponse = waitSendResponse;
@@ -43,7 +46,9 @@ public class LoadMt extends ThreadBase
 		this.threadNumber = threadNumber;
 		this.threadIndex = threadIndex;
 
-		mtQueueDb = new MtQueue();
+		daoMtQueue = new DaoMtQueue();
+		//listMt = new ArrayList<MtQueue>();
+		//listSubmit = new LinkedList<SubmitSM>();
 	}
 
 	public void doRun()
@@ -54,22 +59,19 @@ public class LoadMt extends ThreadBase
 			{
 				try
 				{
-					List<MtQueue> mList = mtQueueDb.GetByThread(threadNumber, threadIndex, getRowCount);
-					for (MtQueue item : mList)
+					listMt = daoMtQueue.GetByThread(threadNumber, threadIndex, getRowCount);
+					for (MtQueue mtQueue : listMt)
 					{
-						MtQueue mtQueue = new MtQueue(item);
 						mtQueue.setSendDate(MyDate.Date2Timestamp(Calendar.getInstance()));
-
-						BuildMt buildMt = new BuildMt(mtQueue, mtLogQueue);
-
-						Vector<SubmitSM> listSubmit = buildMt.getSubmit();
-						//
+						BuildMt buildMt=new BuildMt(mtQueue, this.mtLogQueue);
+												
+						this.listSubmit = buildMt.getSubmit();
+						
 						int i = listSubmit.size();
-
-						for (Iterator<SubmitSM> it2 = listSubmit.iterator(); it2.hasNext();)
+						while(listSubmit.size() > 0)
 						{
 							i--;
-							SubmitSM ssm = (SubmitSM) it2.next();
+							SubmitSM ssm = (SubmitSM) listSubmit.removeFirst();
 							this.sendQueue.enqueue(ssm);
 							if (i == 0)
 							{
@@ -80,11 +82,14 @@ public class LoadMt extends ThreadBase
 
 								mlog.log.info("SEND MT: " + MyLogger.GetLog(mtQueue));
 							}
-						}
+						}						
 					}
 
-					if (mList.size() > 0)
-						mtQueueDb.Delete(mList);
+					if (listMt.size() > 0)
+					{
+						daoMtQueue.delete(listMt);
+					}
+					Cleaner.cleanObj(listMt);
 
 					sleep(100);
 				}

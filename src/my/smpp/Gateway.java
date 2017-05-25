@@ -1,12 +1,14 @@
 package my.smpp;
 import java.io.File;
-import java.util.Iterator;
-
 import com.logica.smpp.*;
 import com.logica.smpp.pdu.*;
+
 import my.db.*;
+import my.db.base.ConnectBase;
 import my.smpp.process.SendEnquireLink;
+import my.smpp.process.CheckAndReport;
 import my.smpp.process.LoadMt;
+import my.smpp.process.PduEventListener;
 import my.smpp.process.ResendMt;
 import my.smpp.process.ResponseMt;
 import my.smpp.process.SaveCdr;
@@ -23,13 +25,30 @@ public class Gateway extends Thread
 	{
 		String currentPath = System.getProperty("user.dir");
 		File mFile = new File(currentPath + "/config.properties");
-
 		Config.loadConfig(mFile.getAbsolutePath());
+
+		if (Config.app.currentPath.equalsIgnoreCase(""))
+			Config.app.currentPath = currentPath;
+
+		if (Config.app.saveQueuePath.equalsIgnoreCase(""))
+			Config.app.saveQueuePath = Config.app.currentPath + "/queue";
+
+		Config.checkAndCreateFolder(Config.app.saveQueuePath);
 
 		MyLogger.log4jConfigPath = Config.log.configPath;
 
-		HibernateSessionFactory.ConfigPath = Config.db.configPath;
-		HibernateSessionFactory.init();
+		try
+		{
+			ConnectBase.defaultPoolName = "MySQL_ShortCode";
+			ConnectBase.loadConfig(Config.db.configPath);
+			
+			//HibernateSessionFactory.ConfigPath = Config.db.configPath;
+			//HibernateSessionFactory.init();
+		}
+		catch (Exception ex)
+		{
+			ex.printStackTrace();
+		}
 	}
 
 	static MyLogger mlog = new MyLogger(Gateway.class.getName());
@@ -40,38 +59,38 @@ public class Gateway extends Thread
 	/**
 	 * Danh sách MTqueue đang chờ reponse trả về từ SMSC, Lưu MTQueue
 	 */
-	static QueueMap waitSendResponse = null;
+	public static QueueMap waitSendResponse = null;
 	/**
-	 * Chứa danh sách các reponse mà SMSC trả về khi gửi MT
+	 * Chứa danh sách các (PDU)reponse mà SMSC trả về khi gửi MT
 	 */
-	static Queue responseQueue = null;
+	public static Queue responseQueue = null;
 	/**
-	 * Chứa danh sách MO nhận được, đang chờ để insert xuống MOQueue
+	 * Chứa danh sách MO (MOQueue) nhận được, đang chờ để insert xuống MOQueue
 	 */
-	static Queue receiveQueue = null;
+	public static Queue receiveQueue = null;
 	/**
-	 * Chứa danh sách MT (pdu) đang cần gửi sang SMSC
+	 * Chứa danh sách MT-SubmitSM (pdu) đang cần gửi sang SMSC
 	 */
-	static Queue sendQueue = null;
+	public static Queue sendQueue = null;
 	/**
-	 * Danh sách các MT gửi sang SMSC bị lỗi, và đang chờ để gửi lại, Lưu trữ
-	 * MTQueue
+	 * Danh sách các MTQueue gửi sang SMSC bị lỗi, và đang chờ để gửi lại, Lưu
+	 * trữ MTQueue
 	 */
-	static Queue resendQueue = null;
+	public static Queue resendQueue = null;
 
 	/**
 	 * các MTQueue đang chờ ghi log và xử lý waitcdrQueue đang chờ
 	 */
-	static Queue mtLogQueue = null;
+	public static Queue mtLogQueue = null;
 
 	/**
-	 * Các Cdr cần insert xuống table cdrQueue
+	 * Các CdrQueue cần insert xuống table cdrQueue
 	 */
-	static Queue cdrQueueSave = null;
+	public static Queue cdrQueueSave = null;
 	/**
-	 * Các cdr đang chờ mt đề biết xem Tính cước hay hoàn cước
+	 * Các cdrQueue đang chờ mt đề biết xem Tính cước hay hoàn cước
 	 */
-	static QueueMap cdrQueueWaiting = null;
+	public static QueueMap cdrQueueWaiting = null;
 
 	public Gateway()
 	{
@@ -115,7 +134,7 @@ public class Gateway extends Thread
 				mlog.log.info("Connecting to SMSC " + Config.smpp.ipAddress + ":" + Config.smpp.port);
 
 				connection = new TCPIPConnection(Config.smpp.ipAddress, Config.smpp.port);
-				connection.setReceiveTimeout(Config.mo.receiveTimeout);
+				connection.setReceiveTimeout(Config.smpp.receiveTimeout);
 				session = new Session(connection);
 
 				request = new BindTransciever();
@@ -174,90 +193,37 @@ public class Gateway extends Thread
 		}
 	}
 
-	static Gateway gateway = new Gateway();
-
-	public void run()
-	{
-		try
-		{
-			// Mặc định là bind theo chế độ TR - bất đồng bộ nhận và gửi
-
-			// Gửi SubmitSM sang SMSC
-			SmscSender sender = new SmscSender(sendQueue);
-			sender.setPriority(MAX_PRIORITY);
-			sender.start();
-
-			// Load MT từ db và build submitSm và add vào sendQueue chờ gửi sang
-			// SMSC
-			LoadMt loadMT = new LoadMt(sendQueue, waitSendResponse, mtLogQueue, 1, 0);
-			loadMT.setPriority(MAX_PRIORITY);
-			loadMT.start();
-
-			// Nhận các Response từ SMSC khi gửi mt xong
-			ResponseMt response = new ResponseMt(responseQueue, waitSendResponse, resendQueue, mtLogQueue);
-			response.setPriority(MAX_PRIORITY);
-			response.start();
-
-			// Gửi lại các MT đang bị lỗi khi gửi sang Telco
-			ResendMt resend = new ResendMt(resendQueue, sendQueue, waitSendResponse, mtLogQueue);
-			resend.setPriority(MAX_PRIORITY);
-			resend.start();
-
-			// Insert mtlog và Insert cdrQueue
-			SaveMtLog saveMtlog = new SaveMtLog(mtLogQueue, cdrQueueWaiting, cdrQueueSave);
-			saveMtlog.setPriority(MAX_PRIORITY);
-			saveMtlog.start();
-
-			// Insert MoQueue và add CdrQueue đề chờ MT
-			SaveMo saveMo = new SaveMo(receiveQueue, cdrQueueWaiting);
-			saveMo.setPriority(MAX_PRIORITY);
-			saveMo.start();
-
-			// Insert Cdr xuống CdrQueue
-			SaveCdr saveCdr = new SaveCdr(cdrQueueSave);
-			saveCdr.setPriority(MAX_PRIORITY);
-			saveCdr.start();
-
-			// Kiểm tra và xóa bỏ các Queue còn sót lại
-			TimeoutResponse timeoutCheck = new TimeoutResponse(waitSendResponse, mtLogQueue, cdrQueueWaiting,
-					cdrQueueSave);
-			timeoutCheck.setPriority(NORM_PRIORITY);
-			timeoutCheck.start();
-
-			// gửi bản tin EnquireLink để kiểm tra kết nối đến smsc
-			SendEnquireLink checkELink = new SendEnquireLink(gateway);
-			checkELink.setPriority(MAX_PRIORITY);
-			checkELink.start();
-
-		}
-		catch (Exception ex)
-		{
-			mlog.log.error(ex);
-		}
-	}
-
 	static void saveQueueToFile()
 	{
-		waitSendResponse.saveToFile("waitSendResponse.dat");
-		//responseQueue.saveToFile("responseQueue.dat");
-		receiveQueue.saveToFile("receiveQueue.dat");
-		sendQueue.saveToFile("sendQueue.dat");
-		resendQueue.saveToFile("resendQueue.dat");
-		mtLogQueue.saveToFile("mtLogQueue.dat");
-		cdrQueueSave.saveToFile("cdrQueueSave.dat");
-		cdrQueueWaiting.saveToFile("cdrQueueWaiting.dat");
+		waitSendResponse.saveToFile(Config.app.saveQueuePath + "/waitSendResponse.dat");
+		// Save PDU
+
+		responseQueue.savePdu(Config.app.saveQueuePath + "/responseQueue/");
+		receiveQueue.saveToFile(Config.app.saveQueuePath + "/receiveQueue.dat");
+		// Save PDU
+		sendQueue.savePdu(Config.app.saveQueuePath + "/sendQueue/");
+		resendQueue.saveToFile(Config.app.saveQueuePath + "/resendQueue.dat");
+		mtLogQueue.saveToFile(Config.app.saveQueuePath + "/mtLogQueue.dat");
+		cdrQueueSave.saveToFile(Config.app.saveQueuePath + "/cdrQueueSave.dat");
+		cdrQueueWaiting.saveToFile(Config.app.saveQueuePath + "/cdrQueueWaiting.dat");
 	}
 
 	static void loadQueueFromFile()
 	{
-		waitSendResponse.loadFromFile("waitSendResponse.dat", "getMtResponseId");
-		//responseQueue.loadFromFile("responseQueue.dat");
-		receiveQueue.loadFromFile("receiveQueue.dat");
-		sendQueue.loadFromFile("sendQueue.dat");
-		resendQueue.loadFromFile("resendQueue.dat");
-		mtLogQueue.loadFromFile("mtLogQueue.dat");
-		cdrQueueSave.loadFromFile("cdrQueueSave.dat");
-		cdrQueueWaiting.loadFromFile("cdrQueueWaiting.dat", "getRequestId");
+		waitSendResponse.loadFromFile(Config.app.saveQueuePath + "/waitSendResponse.dat", "getMtResponseId");
+
+		// Load PDU
+		Config.checkAndCreateFolder(Config.app.saveQueuePath + "/responseQueue/");
+		responseQueue.loadPdu(Config.app.saveQueuePath + "/responseQueue/");
+		receiveQueue.loadFromFile(Config.app.saveQueuePath + "/receiveQueue.dat");
+
+		// Load PDU
+		Config.checkAndCreateFolder(Config.app.saveQueuePath + "/sendQueue/");
+		sendQueue.loadPdu(Config.app.saveQueuePath + "/sendQueue/");
+		resendQueue.loadFromFile(Config.app.saveQueuePath + "/resendQueue.dat");
+		mtLogQueue.loadFromFile(Config.app.saveQueuePath + "/mtLogQueue.dat");
+		cdrQueueSave.loadFromFile(Config.app.saveQueuePath + "/cdrQueueSave.dat");
+		cdrQueueWaiting.loadFromFile(Config.app.saveQueuePath + "/cdrQueueWaiting.dat", "getRequestId");
 	}
 
 	static void exit()
@@ -265,26 +231,26 @@ public class Gateway extends Thread
 		try
 		{
 			mlog.log.info("Stoping...");
-			
+
 			mlog.log.info("unbinding smsc...");
 			unBind();
 			mlog.log.info("unbind success smsc...");
-			
+
 			Var.smpp.running = false;
 			Var.smpp.sessionBound = false;
-			
+
 			responseQueue.wakeup();
 			receiveQueue.wakeup();
 			sendQueue.wakeup();
 			resendQueue.wakeup();
 			mtLogQueue.wakeup();
 			cdrQueueSave.wakeup();
-			
+
 			int count = 1;
 			while (count < 10 && ThreadBase.countLiveThread() > 0)
 			{
 				mlog.log.info("Waiting for Stoping Thread...count live thread:" + ThreadBase.countLiveThread());
-				//ThreadBase.stateLiveThread();
+				// ThreadBase.stateLiveThread();
 				sleep(100);
 				count++;
 			}
@@ -300,6 +266,94 @@ public class Gateway extends Thread
 		}
 	}
 
+	
+
+	public void run()
+	{
+		try
+		{
+			// Mặc định là bind theo chế độ TR - bất đồng bộ nhận và gửi
+
+			// Gửi SubmitSM sang SMSC
+			SmscSender sender = new SmscSender(sendQueue);
+			sender.setPriority(MAX_PRIORITY);
+			sender.start();
+
+			// Load MT từ db và build submitSm và add vào sendQueue chờ gửi sang
+			// SMSC
+
+			for (int i = 0; i < Config.mt.numberThreadLoadMt; i++)
+			{
+				LoadMt loadMT = new LoadMt(sendQueue, waitSendResponse, mtLogQueue, Config.mt.numberThreadLoadMt, i);
+				loadMT.setPriority(MAX_PRIORITY);
+				loadMT.start();
+			}
+
+			for (int i = 0; i < Config.mt.numberThreadResponse; i++)
+			{
+				// Nhận các Response từ SMSC khi gửi mt xong
+				ResponseMt response = new ResponseMt(responseQueue, waitSendResponse, resendQueue, mtLogQueue);
+				response.setPriority(MAX_PRIORITY);
+				response.start();
+			}
+
+			for (int i = 0; i < Config.mt.numberThreadResend; i++)
+			{
+				// Gửi lại các MT đang bị lỗi khi gửi sang Telco
+				ResendMt resend = new ResendMt(resendQueue, sendQueue, waitSendResponse, mtLogQueue);
+				resend.setPriority(MAX_PRIORITY);
+				resend.start();
+			}
+
+			for (int i = 0; i < Config.mt.numberThreadSaveMtlog; i++)
+			{
+				// Insert mtlog và Insert cdrQueue
+				SaveMtLog saveMtlog = new SaveMtLog(mtLogQueue, cdrQueueWaiting, cdrQueueSave);
+				saveMtlog.setPriority(MAX_PRIORITY);
+				saveMtlog.start();
+			}
+			for (int i = 0; i < Config.mo.numberThreadSaveMo; i++)
+			{
+				// Insert MoQueue và add CdrQueue đề chờ MT
+				SaveMo saveMo = new SaveMo(receiveQueue, cdrQueueWaiting);
+				saveMo.setPriority(MAX_PRIORITY);
+				saveMo.start();
+			}
+			for (int i = 0; i < Config.cdr.numberThreadSaveCdr; i++)
+			{
+				// Insert Cdr xuống CdrQueue
+				SaveCdr saveCdr = new SaveCdr(cdrQueueSave);
+				saveCdr.setPriority(MAX_PRIORITY);
+				saveCdr.start();
+			}
+
+			// Kiểm tra và xóa bỏ các Queue còn sót lại
+			TimeoutResponse timeoutCheck = new TimeoutResponse(waitSendResponse, mtLogQueue, cdrQueueWaiting,
+					cdrQueueSave);
+			timeoutCheck.setPriority(NORM_PRIORITY);
+			timeoutCheck.start();
+
+			// gửi bản tin EnquireLink để kiểm tra kết nối đến smsc
+			SendEnquireLink checkELink = new SendEnquireLink(gateway);
+			checkELink.setPriority(MAX_PRIORITY);
+			checkELink.start();
+
+			/*
+			 * Cleaner cleaner = new Cleaner();
+			 * cleaner.setPriority(MIN_PRIORITY); cleaner.start();
+			 */
+			CheckAndReport check = new CheckAndReport();
+			check.setPriority(NORM_PRIORITY);
+			check.start();
+		}
+		catch (Exception ex)
+		{
+			mlog.log.error(ex);
+		}
+	}
+
+	
+	static Gateway gateway;
 	public static void main(String args[])
 	{
 		mlog.log.info("------START-------");

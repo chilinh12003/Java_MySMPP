@@ -4,7 +4,7 @@
 	<comment></comment>
 	<projects>
 		<project>MyLib</project>
-		<project>MyDbShortCode</project>
+		<project>MyDbFinal</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

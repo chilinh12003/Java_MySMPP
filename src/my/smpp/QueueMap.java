@@ -6,7 +6,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -18,7 +17,7 @@ public class QueueMap
 {
 	MyLogger mlog = new MyLogger(this.getClass().getName());
 	
-	protected HashMap<String,Object> listObj=null;
+	protected HashMap<String,Object> listObj;
 	
 	public QueueMap()
 	{

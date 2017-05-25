@@ -1,19 +1,16 @@
 package my.smpp;
 
 import java.util.Calendar;
-import java.util.Vector;
+import java.util.LinkedList;
 
 import com.logica.smpp.Data;
 import com.logica.smpp.pdu.SubmitSM;
 import com.logica.smpp.util.ByteBuffer;
 
-import my.db.MtLog;
-import my.db.MtQueue;
-import my.db.MtQueue.ContentType;
-import my.db.MtQueue.SendType;
-import my.db.MtQueue.Status;
-import uti.MyCheck;
-import uti.MyConfig;
+import my.db.obj.MtQueue;
+import my.db.dao.DaoMtQueue.ContentType;
+import my.db.dao.DaoMtQueue.SendType;
+import my.db.dao.DaoMtQueue.Status;
 import uti.MyConfig.Telco;
 import uti.MyDate;
 import uti.MyLogger;
@@ -35,12 +32,18 @@ public class BuildMt
 
 	Queue mtLogQueue = null;
 	MtQueue mtQueue = null;
-	SubmitSM submitSm = null;
-	Vector<SubmitSM> listSubmit = new Vector<SubmitSM>();
+	
+	public void setMtQueue(MtQueue mtQueue)
+	{
+		this.mtQueue = mtQueue;
+	}
 
-	MtQueue.ContentType contentType = ContentType.NoThing;
-	MtQueue.SendType sendType = SendType.NoThing;
-	MtQueue.Status status = Status.NoThing;
+	SubmitSM submitSm = null;
+	LinkedList<SubmitSM> listSubmit = null;
+
+	ContentType contentType = ContentType.NoThing;
+	SendType sendType = SendType.NoThing;
+	Status status = Status.NoThing;
 
 	String note = "";
 	boolean isValid = false;
@@ -57,7 +60,9 @@ public class BuildMt
 	{
 		this.mtQueue = mtQueue;
 		this.mtLogQueue = mtLogQueue;
-		checkValid();
+		
+		this.listSubmit = new LinkedList<SubmitSM>();
+		
 	}
 	void setInvalid(String note)
 	{
@@ -80,9 +85,9 @@ public class BuildMt
 			}
 
 			// ContentType
-			contentType = MtQueue.ContentType.fromValue(mtQueue.getContentTypeId());
-			sendType = MtQueue.SendType.fromValue(mtQueue.getSendTypeId());
-			status = MtQueue.Status.fromValue(mtQueue.getStatusId());
+			contentType = ContentType.fromValue(mtQueue.getContentTypeId());
+			sendType = SendType.fromValue(mtQueue.getSendTypeId());
+			status = Status.fromValue(mtQueue.getStatusId());
 
 			if (contentType == ContentType.NoThing || sendType == SendType.NoThing)
 			{
@@ -194,7 +199,7 @@ public class BuildMt
 		try
 		{
 			// Update MtQueue
-			mtQueue.setTotalSegment((short) totalSegment);
+			mtQueue.setTotalSegment(totalSegment);
 			mtQueue.setNote(note);
 			mtQueue.setStatusId(status.getValue());
 			mtQueue.setDoneDate(MyDate.Date2Timestamp(Calendar.getInstance()));
@@ -207,8 +212,10 @@ public class BuildMt
 			mlog.log.warn("SAVE FAIL MTQUEUE -->:" + MyLogger.GetLog(mtQueue));
 		}
 	}
-	public Vector<SubmitSM> getSubmit()
+	public LinkedList<SubmitSM> getSubmit()
 	{
+		checkValid();
+		
 		// Nếu mtQueue không hợp lệ thì insert xuống log, và không gửi đi
 		if (!isValid || sendType == SendType.NotSend)
 		{
@@ -227,8 +234,6 @@ public class BuildMt
 			
 			for (int i = 0; i < totalSegment; i++)
 			{
-				
-				
 				initSubmit();
 				ByteBuffer udh;
 				ByteBuffer buffer;
@@ -285,7 +290,7 @@ public class BuildMt
 
 			status = Status.WaitingResponse;
 			// Update MtQueue
-			mtQueue.setTotalSegment((short) totalSegment);
+			mtQueue.setTotalSegment(totalSegment);
 			mtQueue.setNote(note);
 			mtQueue.setMtResponseId(sequenceId);
 			mtQueue.setStatusId(status.getValue());

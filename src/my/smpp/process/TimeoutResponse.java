@@ -6,8 +6,8 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map.Entry;
 
-import my.db.CdrQueue;
-import my.db.MtQueue;
+import my.db.obj.CdrQueue;
+import my.db.obj.MtQueue;
 import my.smpp.Config;
 import my.smpp.Queue;
 import my.smpp.QueueMap;

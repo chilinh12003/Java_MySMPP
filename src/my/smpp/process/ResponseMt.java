@@ -2,7 +2,9 @@ package my.smpp.process;
 
 import java.sql.Timestamp;
 import java.util.Calendar;
-import my.db.MtQueue;
+
+import my.db.dao.DaoMtQueue;
+import my.db.obj.MtQueue;
 import my.smpp.*;
 import uti.MyDate;
 import uti.MyLogger;
@@ -90,7 +92,7 @@ public class ResponseMt extends ThreadBase
 					return;
 				}
 				mtQueue.setDoneDate(MyDate.Date2Timestamp(Calendar.getInstance()));
-				mtQueue.setStatusId(MtQueue.Status.SendSuccess.getValue());
+				mtQueue.setStatusId(DaoMtQueue.Status.SendSuccess.getValue());
 
 				// Add queue để chờ lưu xuống db
 				mtLogQueue.enqueue(mtQueue);
@@ -108,11 +110,11 @@ public class ResponseMt extends ThreadBase
 				// Mỗi lần resend sẽ công thêm lỗi vào
 				mtQueue.setNote(mtQueue.getNote() + "|" + errorName);
 
-				if ((resend == 1) && (mtQueue.getRetryCount() < Config.mt.maxRetrySendMt))
+				if ((resend == 1) && (mtQueue.getRetryCount() <= Config.mt.maxRetrySendMt))
 				{
 					if ((time.compareTo(mtQueue.getSendDate())) > 0)
 					{
-						mtQueue.setRetryCount((short) (mtQueue.getRetryCount() + 1));
+						mtQueue.setRetryCount( mtQueue.getRetryCount() + 1);
 					}
 					mlog.log.info("ADD TO RESEND:" + MyLogger.GetLog(mtQueue));
 					resendQueue.enqueue(mtQueue);
@@ -122,14 +124,15 @@ public class ResponseMt extends ThreadBase
 					mlog.log.info("SEND MT FAIL:" + MyLogger.GetLog(mtQueue));
 					
 					mtQueue.setDoneDate(MyDate.Date2Timestamp(Calendar.getInstance()));					
-					mtQueue.setStatusId(MtQueue.Status.SendFail.getValue());
+					mtQueue.setStatusId(DaoMtQueue.Status.SendFail.getValue());
 					
 					// Add queue để chờ lưu xuống db
 					mtLogQueue.enqueue(mtQueue);
+					
 				}
 			}
 		}
-		else
+		else if (pdu.getCommandId() != Data.ENQUIRE_LINK_RESP)
 		{
 			mlog.log.warn("processResponse (not processed).");
 		}

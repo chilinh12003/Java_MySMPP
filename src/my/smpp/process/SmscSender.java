@@ -42,8 +42,8 @@ public class SmscSender extends ThreadBase
 						else if (pdu.isRequest())
 						{
 							sendRequest(pdu);
-							int time2sleep = (1000 / Config.mt.senderRequestTps);
-
+							
+							int time2sleep = (1000 / Config.mt.tps);
 							sleep(time2sleep);
 						}
 					}
@@ -76,7 +76,7 @@ public class SmscSender extends ThreadBase
 			try
 			{
 				SubmitSM request = (SubmitSM) pdu;
-				mlog.log.info("SubmitSM Request: " + request.debugString());
+				mlog.log.debug("SubmitSM Request: " + request.debugString());
 
 				// GW chỉ chạy chế độ bất đồng bộ TR
 				if (Config.smpp.asyncMode)

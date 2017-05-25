@@ -8,7 +8,7 @@
 		</attributes>
 	</classpathentry>
 	<classpathentry combineaccessrules="false" kind="src" path="/MyLib"/>
-	<classpathentry combineaccessrules="false" kind="src" path="/MyDbShortCode"/>
 	<classpathentry kind="con" path="org.eclipse.jst.j2ee.internal.module.container"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/MyDbFinal"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

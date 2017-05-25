@@ -4,8 +4,6 @@ import java.util.Calendar;
 
 import com.logica.smpp.*;
 
-import my.db.MtLog;
-import my.db.MtQueue;
 import uti.MyDate;
 import uti.MyLogger;
 

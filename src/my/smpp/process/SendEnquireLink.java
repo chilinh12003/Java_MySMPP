@@ -53,11 +53,9 @@ public class SendEnquireLink extends ThreadBase
 			if (Var.smpp.running)
 			{
 				Var.smpp.sessionBound = false;
-
-				sleep(Config.smpp.rebindTimeout);
-
 				mlog.log.info("Start rebind....");
 				gateway.bindAsync();
+				sleep(Config.smpp.rebindTimeout);
 			}
 		}
 	}

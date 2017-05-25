@@ -2,9 +2,11 @@ package my.smpp.process;
 
 import java.util.Calendar;
 
-import my.db.CdrQueue;
-import my.db.MtLog;
-import my.db.MtQueue;
+import my.db.dao.DaoMtLog;
+import my.db.dao.DaoMtQueue;
+import my.db.obj.CdrQueue;
+import my.db.obj.MtLog;
+import my.db.obj.MtQueue;
 import my.smpp.*;
 import uti.MyDate;
 import uti.MyLogger;
@@ -21,12 +23,15 @@ public class SaveMtLog extends ThreadBase
 	private Queue mtLogQueue = null;
 	private QueueMap cdrQueueWaiting = null;
 	private Queue cdrQueueSave = null;
-
+	private MtQueue mtQueue = null;
+	private MtLog mtlog =null;
+	private DaoMtLog dao;
 	public SaveMtLog(Queue mtLogQueue, QueueMap cdrQueueWaiting, Queue cdrQueueSave)
 	{
 		this.mtLogQueue = mtLogQueue;
 		this.cdrQueueWaiting = cdrQueueWaiting;
 		this.cdrQueueSave = cdrQueueSave;
+		this.dao = new DaoMtLog();
 	}
 
 	public void doRun()
@@ -35,12 +40,16 @@ public class SaveMtLog extends ThreadBase
 		{
 			try
 			{
-				MtQueue mtQueue = (MtQueue) mtLogQueue.dequeue();
+				mtQueue = (MtQueue) mtLogQueue.dequeue();
 				if (mtQueue != null)
 				{
 					saveMtLog(mtQueue);
-					addCdrQueue(mtQueue);
-				}
+					
+					if(Config.cdr.allowCreateCdr)
+						addCdrQueue(mtQueue);
+					
+					Cleaner.cleanObj(mtQueue);
+				}				
 			}
 			catch (Exception ex)
 			{
@@ -71,7 +80,7 @@ public class SaveMtLog extends ThreadBase
 				cdrQueue.setKeyword(mtQueue.getKeyword());
 				cdrQueue.setStatusId(CdrQueue.Status.WaitingFtp.getValue());
 
-				if (mtQueue.getStatusId().shortValue() != MtQueue.Status.SendSuccess.getValue().shortValue())
+				if (mtQueue.getStatusId().shortValue() != DaoMtQueue.Status.SendSuccess.getValue().shortValue())
 				{
 					// nếu gửi không thành công thì hoàn tiền cho khách hàng
 					cdrQueue.setChargeTypeId(CdrQueue.ChargeType.Refund.getValue());
@@ -95,12 +104,12 @@ public class SaveMtLog extends ThreadBase
 	 */
 	boolean saveMtLog(MtQueue mtQueue)
 	{
-		MtLog mtlog = null;
+		
 		try
 		{
 			mtlog = new MtLog(mtQueue);
 			mtlog.setLogDate(MyDate.Date2Timestamp(Calendar.getInstance()));
-			if (mtlog.Save())
+			if (dao.add(mtlog))
 			{
 				mlog.log.info("SAVE MtLog -->:" + MyLogger.GetLog(mtlog));
 				return true;

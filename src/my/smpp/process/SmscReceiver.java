@@ -1,12 +1,17 @@
 package my.smpp.process;
 
+import java.util.Calendar;
+
 import com.logica.smpp.*;
 import com.logica.smpp.pdu.*;
 
+import my.db.obj.MoQueue;
 import my.smpp.Config;
-import my.smpp.PduMo;
 import my.smpp.Queue;
 import my.smpp.Var;
+import uti.MyConfig;
+import uti.MyConvert;
+import uti.MyDate;
 
 /**
  * For receiving PDUs from SMSC, in Sync mode --> Only request PDUs are
@@ -25,7 +30,41 @@ public class SmscReceiver extends ThreadBase
 		this.session = session;
 		this.receiveQueue = receiveQueue;
 	}
-
+	MoQueue createMo(DeliverSM deliverSm) throws Exception
+	{
+		try
+		{
+			MoQueue moQueue = new MoQueue();
+			Calendar calReceiveDate = Calendar.getInstance();
+			String requestId = MyConfig.Get_DateFormat_yyyymmddhhmmssSSS().format(calReceiveDate.getTime());
+			moQueue.setPhoneNumber(removePlusSign(deliverSm.getSourceAddr().getAddress()));
+			moQueue.setPid(MyConvert.GetPIDByMSISDN(moQueue.getPhoneNumber(), 100));
+			moQueue.setShortCode(removePlusSign(deliverSm.getDestAddr().getAddress()));
+			
+			moQueue.setMo(deliverSm.getShortMessage());
+			moQueue.setReceiveDate(MyDate.Date2Timestamp(calReceiveDate));
+			moQueue.setChannelId(MyConfig.ChannelType.SMS.GetValue());
+			moQueue.setRequestId(requestId);
+			moQueue.setTelcoId(Config.smpp.telco.GetValue());
+			moQueue.setMoInsertDate(MyDate.Date2Timestamp(Calendar.getInstance()));
+			 return moQueue;
+		}
+		catch(Exception ex)
+		{
+			throw ex;
+		}
+	}
+	
+	private String removePlusSign(String PhoneNumber)
+	{
+		String temp = PhoneNumber;
+		if (temp.startsWith("+"))
+		{
+			temp = temp.substring(1);
+		}
+		return temp;
+	}
+	
 	public void doRun()
 	{
 		while (Var.smpp.running)
@@ -34,7 +73,7 @@ public class SmscReceiver extends ThreadBase
 			{
 				try
 				{
-					pdu = session.receive(Config.mo.receiveTimeout);
+					pdu = session.receive(Config.smpp.receiveTimeout);
 
 					// pdu = session.receive();
 					if (pdu != null && pdu.isValid())
@@ -52,8 +91,24 @@ public class SmscReceiver extends ThreadBase
 							{
 								if (pdu.getCommandId() == Data.DELIVER_SM)
 								{
-									PduMo pduMo = new PduMo(pdu);
-									receiveQueue.enqueue(pduMo);
+									 DeliverSM deliverSm = (DeliverSM) pdu;
+										
+										// Added on 22//2003 : VinaPhone gui ban tin DeliverReport voi
+										// truong esm_class != 0x4. ==> He thong xem nhu ban tin thuong
+										// sai format va gui thong bao -- report -- thong bao --> LOOP./
+										// To pass over this, set:
+										
+										if (deliverSm.getEsmClass() == 0x04)
+										{
+											// this.deliveryQueue.enqueue(pdu);
+											mlog.log.info("dsm.getEsmClass() == 0x04");
+										}
+										else
+										{
+											MoQueue moQueue = createMo(deliverSm);
+											receiveQueue.enqueue(moQueue);
+											mlog.log.info("RECEIVE MO"+deliverSm.debugString());
+										}
 								}
 								else
 								{
@@ -87,7 +142,7 @@ public class SmscReceiver extends ThreadBase
 			{
 				mlog.log.info("Delay-receiver");
 
-				sleep(Config.mo.receiveDelay);
+				sleep(Config.smpp.receiveDelay);
 
 				mlog.log.info("Delay-receiver");
 			}

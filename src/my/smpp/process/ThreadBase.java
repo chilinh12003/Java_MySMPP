@@ -26,7 +26,7 @@ public abstract class ThreadBase extends Thread
 
 	public String getKey()
 	{
-		return this.getClass().getName() + this.getId();
+		return this.getClass().getName() + "-"+this.getId();
 	}
 	
 	/**
@@ -40,6 +40,7 @@ public abstract class ThreadBase extends Thread
 	public void addIntoLiveThread()
 	{
 		liveThread.put(this.getKey(), this);
+		this.setName(getKey());
 	}
 	public void removeFromLiveThread()
 	{

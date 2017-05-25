@@ -1,6 +1,7 @@
 package my.smpp.process;
 
-import my.db.CdrQueue;
+import my.db.dao.DaoCdrQueue;
+import my.db.obj.CdrQueue;
 import my.smpp.*;
 import uti.MyLogger;
 
@@ -16,11 +17,13 @@ public class SaveCdr extends ThreadBase
 	private Queue cdrQueueSave = null;
 
 	CdrQueue cdrQueue = null;
+	DaoCdrQueue dao = null;
 	public SaveCdr(Queue cdrQueueSave)
 	{
 		this.cdrQueueSave = cdrQueueSave;
+		dao = new DaoCdrQueue();
 	}
-
+	
 	public void doRun()
 	{
 		while (Var.smpp.running)
@@ -32,6 +35,7 @@ public class SaveCdr extends ThreadBase
 				{
 					saveCdrQueue(cdrQueue);
 				}
+				Cleaner.cleanObj(cdrQueue);
 			}
 			catch (Exception ex)
 			{
@@ -47,7 +51,7 @@ public class SaveCdr extends ThreadBase
 	{
 		try
 		{
-			if (cdrQueue.Save())
+			if (dao.add(cdrQueue))
 			{
 				mlog.log.info("SAVE cdrQueue -->:" + MyLogger.GetLog(cdrQueue));
 				return true;
